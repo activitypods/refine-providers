@@ -1,0 +1,46 @@
+services:
+  fuseki:
+    image: semapps/jena-fuseki-webacl
+    volumes:
+      - ./data/fuseki:/fuseki:z
+    ports:
+      - "3030:3030"
+    environment:
+      ADMIN_PASSWORD: admin
+
+  activitypods-backend:
+    image: activitypods/backend
+    depends_on:
+      - fuseki
+      - redis
+    restart: always
+    volumes:
+      - ./data/activitypods/logs:/app/backend/logs:z
+      - ./data/activitypods/jwt:/app/backend/jwt:z
+      - ./data/activitypods/uploads:/app/backend/uploads:z
+    environment:
+      SEMAPPS_JENA_PASSWORD: admin
+      SEMAPPS_APP_LANG: en
+      SEMAPPS_SHAPE_REPOSITORY_URL: ${SHAPE_REPOSITORY_URL}
+    # Host networking so the backend can reach the Vite dev server (this example has no app
+    # backend of its own) at http://localhost:5173, the same way app-boilerplate's Pod provider
+    # reaches its app backend at http://localhost:3001. See https://docs.docker.com/network/drivers/host/
+    network_mode: "host"
+
+  activitypods-frontend:
+    image: activitypods/frontend
+    depends_on:
+      - activitypods-backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      REACT_APP_CONFIG_URL: "http://localhost:3000/.well-known/config.js"
+
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data:z
+    command: ["redis-server", "--appendonly", "yes"]

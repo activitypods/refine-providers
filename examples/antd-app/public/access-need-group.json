@@ -1,0 +1,20 @@
+{
+  "@context": {
+    "interop": "http://www.w3.org/ns/solid/interop#",
+    "type": "@type",
+    "interop:accessNecessity": { "@type": "@id" },
+    "interop:accessScenario": { "@type": "@id" },
+    "interop:authenticatedAs": { "@type": "@id" },
+    "interop:hasAccessNeed": { "@type": "@id" }
+  },
+  "@id": "http://localhost:5173/access-need-group.json",
+  "id": "http://localhost:5173/access-need-group.json",
+  "type": "interop:AccessNeedGroup",
+  "interop:accessNecessity": "interop:AccessRequired",
+  "interop:accessScenario": "interop:PersonalAccess",
+  "interop:authenticatedAs": "interop:SocialAgent",
+  "interop:hasAccessNeed": [
+    "http://localhost:5173/access-need-note.json",
+    "http://localhost:5173/access-need-profile.json"
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "name": "@activitypods/refine-providers",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Refine data and auth providers for ActivityPods",
+  "authors": [
+    "Sébastien Rosset"
+  ],
+  "license": "MIT/Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./auth-provider": {
+      "types": "./dist/auth-provider.d.ts",
+      "default": "./dist/auth-provider.js"
+    },
+    "./antd-auth-page": {
+      "types": "./dist/antd-auth-page.d.ts",
+      "default": "./dist/antd-auth-page.js"
+    },
+    "./data-provider": {
+      "types": "./dist/data-provider.d.ts",
+      "default": "./dist/data-provider.js"
+    },
+    "./live-provider": {
+      "types": "./dist/live-provider.d.ts",
+      "default": "./dist/live-provider.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "default": "./dist/utils.js"
+    }
+  },
+  "targets": {
+    "index": {
+      "source": "src/index.ts",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    },
+    "auth-provider": {
+      "source": "src/auth-provider.ts",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    },
+    "antd-auth-page": {
+      "source": "src/antd-auth-page.tsx",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    },
+    "data-provider": {
+      "source": "src/data-provider.ts",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    },
+    "live-provider": {
+      "source": "src/live-provider.ts",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    },
+    "utils": {
+      "source": "src/utils.ts",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist .parcel-cache && parcel build && tsc -p tsconfig.build.json",
+    "watch": "concurrently -n parcel,tsc -c blue,yellow \"parcel watch --no-cache\" \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\"",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "http-link-header": "^1.1.3",
+    "jsonld": "^8.0.0",
+    "jwt-decode": "^3.0.0",
+    "oauth4webapi": "^2.3.0"
+  },
+  "peerDependencies": {
+    "@refinedev/core": "^5.0.12",
+    "@ant-design/icons": "^5.5.1",
+    "antd": "^5.23.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-router": "^7.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@ant-design/icons": { "optional": true },
+    "antd": { "optional": true },
+    "react": { "optional": true },
+    "react-router": { "optional": true }
+  },
+  "devDependencies": {
+    "@refinedev/core": "^5.0.12",
+    "@ant-design/icons": "^5.5.1",
+    "@types/http-link-header": "^1.0.7",
+    "@types/jsonld": "^1.5.14",
+    "@types/react": "^19.1.0",
+    "antd": "^5.23.0",
+    "concurrently": "^10.0.3",
+    "parcel": "^2.16.4",
+    "react": "^19.1.0",
+    "react-router": "^7.0.2",
+    "typescript": "^5.8.3"
+  }
+}

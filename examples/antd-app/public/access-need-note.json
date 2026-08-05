@@ -1,0 +1,18 @@
+{
+  "@context": [
+    {
+      "acl": "http://www.w3.org/ns/auth/acl#",
+      "interop": "http://www.w3.org/ns/solid/interop#",
+      "type": "@type",
+      "interop:registeredShapeTree": { "@type": "@id" },
+      "interop:accessMode": { "@type": "@id" },
+      "interop:accessNecessity": { "@type": "@id" }
+    }
+  ],
+  "@id": "http://localhost:5173/access-need-note.json",
+  "id": "http://localhost:5173/access-need-note.json",
+  "type": "interop:AccessNeed",
+  "interop:registeredShapeTree": "https://shapes.activitypods.org/shapetrees/as/Note",
+  "interop:accessMode": ["acl:Read", "acl:Write"],
+  "interop:accessNecessity": "interop:AccessRequired"
+}
