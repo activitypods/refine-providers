@@ -40,10 +40,3 @@ pnpm run dev
 ```
 
 Open the app, pick (or type) your Pod provider's URL, log in, and grant this app access to your notes when prompted. You should then be able to create, list, edit and delete posts.
-
-## What's different from the NextGraph example
-
-- There is no "broker URL" field: the login page (`AntdAuthPage`, from `@activitypods/refine-providers/antd-auth-page` — see `App.tsx`) lets you pick a Pod provider (or use the local one configured via `VITE_POD_PROVIDER_URL`) and logs in via Solid-OIDC.
-- That same component is mounted at a single `/login` route: unlike react-admin, Refine has no built-in auth-callback route, but `AntdAuthPage` doesn't need one either — it figures out what to do from the URL's search params (initial picker, OAuth code exchange, then registering the app with the user's authorization agent) — see the main package's README for details.
-- `apAuthProvider()` (in `providers.ts`) polls in the background and silently redirects back to the consent screen if the app's access needs ever change while you're already logged in (e.g. after the `profile` resource was added below) — see the main README's [§3.1](../../README.md#31-re-consent-when-access-needs-change). This relies on `public/app.json`'s `dc:modified` field being bumped whenever an access need changes — already done here.
-- No live provider wired up here: the package has one (built on the Solid Notifications Protocol), but it's currently blocked by an upstream bug in ActivityPods/SemApps — see the main README's [§5](../../README.md#5-optional-enable-live-updates) for the root cause. Until that's fixed, you'll need to refresh manually to see changes made elsewhere.
