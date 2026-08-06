@@ -93,6 +93,8 @@ If the app is later changed to request a *new* access need (e.g. a resource adde
 
 - Your `app.json` needs a `dc:modified` property (mapped to `http://purl.org/dc/terms/modified`) for this to work at all — without it, both sides compare as `undefined` and the Pod can never detect a change. See [`examples/antd-app/public/app.json`](./examples/antd-app/public/app.json).
 - Treat it as a hand-maintained version stamp, not a live timestamp: only bump it when you actually change something the Pod should reconcile (an access need, or `app.json`'s other declared properties) — regenerating it on every deploy would force *every* user through re-consent on *every* release, defeating the point.
+- Your context needs to type it explicitly — `"dc:modified": { "@type": "xsd:dateTime" }` — otherwise it's stored untyped, the Pod's comparison always sees mismatched types, and `upgradeNeeded` is permanently (not just occasionally) stuck `true`.
+- **Write the value in canonical XSD `dateTime` form: no fractional seconds if they'd be zero** (`2026-08-05T00:00:00Z`, not `2026-08-05T00:00:00.000Z`). The comparison is a plain string `!=`, not a datetime-aware one, and the triplestore canonicalizes `dateTime` literals on the way in/out — a `.000Z` you wrote will come back as `Z` after the round-trip, permanently mismatching the raw value in your file even though both represent the same instant.
 
 > **⚠️ Known upstream bug: new *required* access needs can be silently granted without ever
 > showing the user the consent screen.** `pod-provider/frontend`'s `UpgradeScreen.js` decides

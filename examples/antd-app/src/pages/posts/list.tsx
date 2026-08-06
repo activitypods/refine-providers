@@ -25,8 +25,13 @@ export const PostList = () => {
           style: { cursor: "pointer" },
         })}
       >
-        <Table.Column dataIndex="id" title="ID" render={(id) => <Typography.Text code>{shortenUri(id)}</Typography.Text>} />
-        <Table.Column dataIndex="name" title="Name" />
+        <Table.Column
+          dataIndex="id"
+          title="ID"
+          sorter
+          render={(id) => <Typography.Text code>{shortenUri(id)}</Typography.Text>}
+        />
+        <Table.Column dataIndex="name" title="Name" sorter />
         <Table.Column<Note>
           title="Actions"
           dataIndex="actions"

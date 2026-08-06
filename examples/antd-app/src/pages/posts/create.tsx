@@ -12,7 +12,6 @@ export const PostCreate = () => {
         <Form.Item label="Name" name="name" rules={[{ required: true }]}>
           <Input placeholder="Enter the post's name" />
         </Form.Item>
-
         <Form.Item label="Content" name="content">
           <MDEditor data-color-mode="light" />
         </Form.Item>
