@@ -2,20 +2,13 @@
 
 Data and auth providers that can be used in any [Refine](https://refine.dev/core/) application to connect to [ActivityPods](https://activitypods.org/) (2.x) Pods.
 
-This package is the ActivityPods counterpart of [`@ng-org/refine-providers`](https://github.com/) for NextGraph: same shape (a `dataProvider` and an `authProvider`, no framework lock-in), adapted to how ActivityPods actually works.
+This package is the ActivityPods counterpart of [`@ng-org/refine-providers`](https://git.nextgraph.org/NextGraph/refine-providers) for NextGraph: same shape (a `dataProvider` and an `authProvider`, no framework lock-in), adapted to how ActivityPods actually works.
 
-> For a full working example (login, list/create/edit/show), have a look at [`examples/antd-app`](./examples/antd-app/). It also wires up the live provider, though that part is currently blocked by an upstream bug — see [§5](#5-optional-enable-live-updates).
-
-## How it differs from the NextGraph providers
-
-- **Auth**: ActivityPods Pod providers only support [Solid-OIDC](https://solidproject.org/TR/oidc) login (with PKCE) — there is no username/password flow to implement. Because every app must also be explicitly granted access before it can read or write anything, the auth provider also exposes a `registerApp()` step, on top of the usual `login()`/`logout()`/`check()`. Given how much more involved this is than a typical login form, an `AntdAuthPage` component implementing all of it ships on its own subpath (see [§3](#3-wire-up-the-login-flow)). `registerApp()`/`getAppStatus()` also detect when a previously granted app has since been asked to do more (e.g. a new resource was added) and silently prompt for re-consent — see [§3.1](#31-re-consent-when-access-needs-change).
-- **Data**: ActivityPods has no equivalent of NextGraph's ShEx-based shape types. Instead, resources live in **Data Registrations** (LDP containers), which the Pod registers — the first time access to a shape tree is granted — as a `solid:TypeRegistration` on the WebID's public (or private) [Solid TypeIndex](https://github.com/solid/solid/blob/main/proposals/data-discovery.md). The data provider reads that index directly (rather than the SAI RegistrySet/DataRegistry, which are restricted to the Pod owner and not readable by an app) to find each container. You only need to tell it which [shape tree](https://shapetrees.org/) (or type) each Refine resource corresponds to.
-- **Pagination & filtering**: unlike the current NextGraph data provider, `getList` here fully honors Refine's `pagination`, `sorters` and `filters` (ActivityPods containers don't support server-side filtering, so this is done in-memory after fetching the container).
-- **Live provider**: instead of NextGraph's local reactive signals, this uses the [Solid Notifications Protocol](https://solidproject.org/TR/notifications-protocol) (`WebSocketChannel2023`) — the Pod itself pushes events over a WebSocket. **Currently blocked by an upstream bug**, see [§5](#5-optional-enable-live-updates).
-
-> **Requires ActivityPods v2.1.0+** on the Pod provider — that's when Data Registrations (and shape-tree-based access needs) were introduced. Containers are still discovered through the classic public/private [Solid TypeIndex](https://github.com/solid/solid/blob/main/proposals/data-discovery.md) rather than the newer (owner-only) SAI RegistrySet/DataRegistry. If you're running a Pod provider locally via Docker, remember `latest` is a static tag: `docker compose pull` (or `docker pull activitypods/backend`) to actually get the current image, since an already-pulled one won't update itself.
+> For a full working example (login, list/create/edit/show), have a look at [`examples/antd-app`](./examples/antd-app/).
 
 ## Usage
+
+> **Requires ActivityPods v2.1.0+** on the Pod provider — that's when Data Registrations (and shape-tree-based access needs) were introduced.
 
 ### 1. Register your app's access needs
 
@@ -33,7 +26,9 @@ const apAuthProvider = authProvider({
   redirectUri: "https://myapp.example.com/auth-callback"
 });
 
-const resources = {
+const apDataProvider = dataProvider({
+  authProvider: apAuthProvider,
+  resources: {
   events: {
     // Preferred: identifies exactly which Data Registration to use
     shapeTreeUri: "https://shapes.activitypods.org/shapetrees/as/Event"
@@ -42,11 +37,7 @@ const resources = {
     // Fallback: resolved against the Data Registrations' shape trees
     types: ["as:Note"]
   }
-};
-
-const apDataProvider = dataProvider({
-  authProvider: apAuthProvider,
-  resources,
+},
   // Optional, defaults to the ActivityStreams 2 context. Add your app's own
   // `.well-known/context.jsonld` here if you use custom ontologies / CURIEs.
   jsonContext: ["https://www.w3.org/ns/activitystreams"]
@@ -72,7 +63,7 @@ const MyLoginPage = () => <AntdAuthPage authProvider={apAuthProvider} />;
 `AntdAuthPage` figures out which stage it's in from the URL's search params (see its docstring), so a single route handles login, the OAuth callback, and app registration:
 
 ```tsx
-<Route path="/login" element={<MyLoginPage />} /> {/* matches `redirectUri` above */}
+<Route path="/login" element={<MyLoginPage />} />
 ```
 
 By default it fetches the public Pod providers list from `https://activitypods.org/data/pod-providers` and lets the user pick one (plus a manual URL field), the same way [`@activitypods/react`'s `LoginPage`](https://github.com/activitypods/activitypods) does. Pass `defaultPodProvider` to skip that list and offer a single URL instead — e.g. for a local dev Pod provider, read from an env var your bundler exposes:
@@ -95,22 +86,6 @@ If the app is later changed to request a *new* access need (e.g. a resource adde
 - Treat it as a hand-maintained version stamp, not a live timestamp: only bump it when you actually change something the Pod should reconcile (an access need, or `app.json`'s other declared properties) — regenerating it on every deploy would force *every* user through re-consent on *every* release, defeating the point.
 - Your context needs to type it explicitly — `"dc:modified": { "@type": "xsd:dateTime" }` — otherwise it's stored untyped, the Pod's comparison always sees mismatched types, and `upgradeNeeded` is permanently (not just occasionally) stuck `true`.
 - **Write the value in canonical XSD `dateTime` form: no fractional seconds if they'd be zero** (`2026-08-05T00:00:00Z`, not `2026-08-05T00:00:00.000Z`). The comparison is a plain string `!=`, not a datetime-aware one, and the triplestore canonicalizes `dateTime` literals on the way in/out — a `.000Z` you wrote will come back as `Z` after the round-trip, permanently mismatching the raw value in your file even though both represent the same instant.
-
-> **⚠️ Known upstream bug: new *required* access needs can be silently granted without ever
-> showing the user the consent screen.** `pod-provider/frontend`'s `UpgradeScreen.js` decides
-> whether an access need is already covered by an *existing* grant by comparing
-> `accessNeed['apods:registeredClass'] === grant['apods:registeredClass']` — a field from the
-> pre-v2.1.0 TypeIndex-based access model. Access needs declared the current way (via
-> `interop:registeredShapeTree`, as this package and [§1](#1-register-your-apps-access-needs) do)
-> don't have an `apods:registeredClass` at all, so that comparison is `undefined === undefined` —
-> always true. In practice this means a *new* access need silently matches *any* pre-existing
-> grant whose access modes happen to be a superset of what it asks for (e.g. an existing
-> `acl:Read, acl:Write` grant on one resource will "cover" a brand new `acl:Read`-only need on a
-> completely different one), and the app is silently upgraded with no prompt at all. The grant it
-> ends up with is still correct (the backend computes it properly, independently of this frontend
-> bug), so this isn't a data-access bug — but it does mean the user was never actually asked.
-> Confirmed by reading `pod-provider/frontend/src/pages/AuthorizePage/UpgradeScreen.js` directly
-> from a Docker image pulled 2026-08-05; not something fixable from this package.
 
 ### 4. Use Refine's hooks as usual
 
@@ -187,4 +162,5 @@ Each subscription opens one [`WebSocketChannel2023`](https://solidproject.org/TR
 pnpm install
 pnpm build
 pnpm watch
+pnpm publish
 ```
