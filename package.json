@@ -8,6 +8,14 @@
     "Sébastien Rosset"
   ],
   "license": "MIT/Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/activitypods/refine-providers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/activitypods/refine-providers/issues"
+  },
+  "homepage": "https://github.com/activitypods/refine-providers#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -105,7 +113,10 @@
     "build": "rm -rf dist .parcel-cache && parcel build && tsc -p tsconfig.build.json",
     "watch": "concurrently -n parcel,tsc -c blue,yellow \"parcel watch --no-cache\" \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\"",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
   },
   "dependencies": {
     "http-link-header": "^1.1.3",
