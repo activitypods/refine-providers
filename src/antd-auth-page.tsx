@@ -54,7 +54,7 @@ export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defau
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { mutate: login, isPending } = useLogin();
-  const { data: identity, isLoading: isIdentityLoading } = useGetIdentity();
+  const { data: identity, isLoading: isIdentityLoading, refetch: refetchIdentity } = useGetIdentity();
 
   const [podProviders, setPodProviders] = useState<PublicPodProvider[]>(
     defaultPodProvider ? [{ "apods:baseUrl": defaultPodProvider }] : [],
@@ -110,10 +110,19 @@ export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defau
     }
     authProvider
       .registerApp(session.webId)
-      .then((appRegistrationUri) => {
+      .then(async (appRegistrationUri) => {
         // If `registerApp` had to redirect to the consent screen, it navigates away itself
         // and this promise never resolves before the page unloads.
-        if (appRegistrationUri) setIsRegistered(true);
+        if (appRegistrationUri) {
+          // `identity` was first queried (and cached as unauthenticated) on this same page's
+          // initial render, before login even started — registerApp() isn't part of Refine's
+          // AuthProvider contract, so Refine has no way to know it should invalidate that cached
+          // query. Without an explicit refetch here, `identity` never resolves to a logged-in
+          // user on this page, and the effect below waits forever — only a full page reload
+          // (which starts a fresh, uncached query) picks up the change.
+          await refetchIdentity();
+          setIsRegistered(true);
+        }
       })
       .catch((err) => setError(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
