@@ -1,6 +1,6 @@
 {
   "name": "@activitypods/refine-providers",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Refine data and auth providers for ActivityPods",
@@ -132,10 +132,18 @@
     "react-router": "^7.0.2"
   },
   "peerDependenciesMeta": {
-    "@ant-design/icons": { "optional": true },
-    "antd": { "optional": true },
-    "react": { "optional": true },
-    "react-router": { "optional": true }
+    "@ant-design/icons": {
+      "optional": true
+    },
+    "antd": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-router": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@refinedev/core": "^5.0.12",
