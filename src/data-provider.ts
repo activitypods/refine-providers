@@ -108,11 +108,15 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
       const { token } = requireSession();
       requireResourceConfig(resource);
 
+      // Get the current version of the resource to reduce the risk of overwriting 
+      // predicates that have been added by the backend
+      const { id: _id, "@context": _context, ...current } = await fetchOne(`${id}`);
+
       await fetchJson(
         `${id}`,
         {
           method: "PUT",
-          body: JSON.stringify({ "@context": jsonContext, ...variables })
+          body: JSON.stringify({ "@context": jsonContext, ...current, ...variables })
         },
         token
       );
