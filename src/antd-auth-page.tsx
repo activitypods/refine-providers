@@ -8,6 +8,40 @@ import type { AuthProvider } from "./types";
 // A curated list of public Pod providers, published by https://activitypods.org/data/pod-providers
 const POD_PROVIDERS_URL = "https://activitypods.org/data/pod-providers";
 
+/**
+ * Where to go once the flow completes, kept across the consent-screen hop.
+ *
+ * `registerApp()` may hand over to the authorization agent, which comes back to the app's
+ * `interop:hasAuthorizationCallbackEndpoint` — a fixed URL declared by the app, carrying none of
+ * our query parameters. Without this, everything the caller asked for is lost at that point and
+ * the user lands on `defaultRedirect` instead of the page they were trying to reach.
+ */
+const STORAGE_KEY_PAGE_REDIRECT = "activitypods.authPageRedirect";
+
+const stashRedirect = (path: string) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_PAGE_REDIRECT, path);
+  } catch {
+    // Blocked storage: the user just lands on the default page
+  }
+};
+
+const readStashedRedirect = () => {
+  try {
+    return localStorage.getItem(STORAGE_KEY_PAGE_REDIRECT) || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const clearStashedRedirect = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY_PAGE_REDIRECT);
+  } catch {
+    // Nothing to clean up if storage is unavailable
+  }
+};
+
 type PublicPodProvider = {
   "apods:baseUrl": string;
   "apods:area"?: string;
@@ -66,7 +100,9 @@ export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defau
   const hasCode = searchParams.has("code");
   const hasRegisterApp = searchParams.has("register_app");
   const isProcessing = hasCode || hasRegisterApp;
-  const redirect = searchParams.get("redirect") || defaultRedirect;
+  // Only consulted while a flow is in progress: on a fresh visit the stash may hold a
+  // leftover from an abandoned attempt, which must not be passed to `login()`.
+  const redirect = searchParams.get("redirect") || (isProcessing ? readStashedRedirect() : undefined) || defaultRedirect;
 
   // Fetch the public provider list, unless a default was configured or we're mid-flow
   useEffect(() => {
@@ -108,6 +144,8 @@ export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defau
       setError("You must be logged in to register this app.");
       return;
     }
+    // `registerApp()` may leave for the consent screen, whose return trip drops our query
+    stashRedirect(redirect);
     authProvider
       .registerApp(session.webId)
       .then(async (appRegistrationUri) => {
@@ -131,7 +169,10 @@ export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defau
   // Once registerApp() has resolved (and Refine's identity cache has caught up), leave for
   // the originally requested page.
   useEffect(() => {
-    if (isRegistered && !isIdentityLoading && identity) navigate(redirect, { replace: true });
+    if (isRegistered && !isIdentityLoading && identity) {
+      clearStashedRedirect();
+      navigate(redirect, { replace: true });
+    }
   }, [isRegistered, isIdentityLoading, identity, navigate, redirect]);
 
   if (isProcessing) {
