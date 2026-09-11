@@ -66,11 +66,15 @@ const MyLoginPage = () => <AntdAuthPage authProvider={apAuthProvider} />;
 <Route path="/login" element={<MyLoginPage />} />
 ```
 
-By default it fetches the public Pod providers list from `https://activitypods.org/data/pod-providers` and lets the user pick one (plus a manual URL field), the same way [`@activitypods/react`'s `LoginPage`](https://github.com/activitypods/activitypods) does. Pass `defaultPodProvider` to skip that list and offer a single URL instead — e.g. for a local dev Pod provider, read from an env var your bundler exposes:
+By default it fetches the public Pod providers list from `https://activitypods.org/data/pod-providers`, keeps the ones whose `apods:locales` match the app's current locale (from your `i18nProvider.getLocale()` — all of them if there is no `i18nProvider`), and lets the user pick one, the same way [`@activitypods/react`'s `LoginPage`](https://github.com/activitypods/activitypods) does. Pass `defaultPodProvider` to skip that list and offer a single URL instead — e.g. for a local dev Pod provider, read from an env var your bundler exposes:
 
 ```tsx
 <AntdAuthPage authProvider={apAuthProvider} defaultPodProvider={import.meta.env.VITE_POD_PROVIDER_URL} />
 ```
+
+Or pass `customPodProviders` (an array of `{ "apods:baseUrl", "apods:area"? }`) for a hand-picked list, and `text` to replace the sentence above it. Like the react-admin original, the page also honors a few search params: `?signup` (go through the provider's signup flow instead of login), `?iss=<url>` (the provider is already known: log in there straight away), `?logout` (log out immediately) and `?redirect=<path>` (where to land once done).
+
+The strings it displays go through Refine's `useTranslate` with English defaults, so they can be overridden in your `i18nProvider` under `pages.login.choosePodProvider`, `pages.login.podProvidersNotLoaded` and `pages.login.backToLogin`.
 
 Prefer a different UI kit, or want to build your own? `AntdAuthPage`'s source (`src/antd-auth-page.tsx`) is a self-contained reference for the three stages — `login()`, `authProvider.handleCallback()`, `authProvider.registerApp()` — that you can reimplement with any component library.
 

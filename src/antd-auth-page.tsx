@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useGetIdentity, useLogin, useTranslate } from "@refinedev/core";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { useGetIdentity, useGetLocale, useLogin, useLogout, useNotification, useTranslate } from "@refinedev/core";
 import { useNavigate, useSearchParams } from "react-router";
-import { Row, Col, Layout, Card, Form, Input, Button, List, Typography, Space, Spin, theme } from "antd";
-import { CloudServerOutlined, LockOutlined } from "@ant-design/icons";
+import { Avatar, Button, Card, Divider, Layout, Space, Spin, Typography, theme } from "antd";
+import { DatabaseOutlined, LockOutlined } from "@ant-design/icons";
 import type { AuthProvider } from "./types";
 
 // A curated list of public Pod providers, published by https://activitypods.org/data/pod-providers
@@ -42,80 +42,154 @@ const clearStashedRedirect = () => {
   }
 };
 
-type PublicPodProvider = {
+/** Only accept in-app paths as a redirect target, never absolute URLs (open-redirect guard). */
+const isPath = (value: unknown): value is string =>
+  typeof value === "string" && value.startsWith("/") && !/\s/.test(value);
+
+/** A Pod provider entry, as published by the `POD_PROVIDERS_URL` endpoint. */
+export type PodProvider = {
+  /** Base URL of the Pod provider, used as the Solid-OIDC issuer */
   "apods:baseUrl": string;
+  /** Human-readable geographic area the provider serves, e.g. "Ouest de la France" */
   "apods:area"?: string;
+  /** Language(s) of the provider's UI (2-letter codes). Used to filter the list by the app's locale */
+  "apods:locales"?: string | string[];
+  /** Name of the organization operating the provider */
+  "apods:providedBy"?: string;
 };
 
 export type AntdAuthPageProps = {
   /** The auth provider instance returned by `authProvider()` from this package. */
   authProvider: AuthProvider;
   /**
-   * Skip fetching the public Pod providers list and offer this single URL instead — e.g. for a
-   * local dev Pod provider. The manual URL field stays available either way. Typically read from
-   * an env var by the consuming app (see the README).
+   * Replace the public Pod providers list (fetched from activitypods.org and filtered by the
+   * current locale) with a custom one.
+   */
+  customPodProviders?: PodProvider[];
+  /**
+   * Shorthand for `customPodProviders` with a single entry: skip fetching the public list and
+   * offer this one URL instead — e.g. for a local dev Pod provider. Typically read from an env
+   * var by the consuming app (see the README).
    */
   defaultPodProvider?: string;
+  /** Text shown above the providers list. Defaults to the translated `pages.login.choosePodProvider`. */
+  text?: string;
   /** Where to send the user once logged in and registered. Defaults to `/`. */
   redirect?: string;
 };
 
-const containerStyle: CSSProperties = {
-  maxWidth: "420px",
-  margin: "auto",
-  padding: "32px",
-  boxShadow:
-    "0px 2px 4px rgba(0, 0, 0, 0.02), 0px 1px 6px -1px rgba(0, 0, 0, 0.02), 0px 1px 2px rgba(0, 0, 0, 0.03)",
-};
-
 /**
- * A login page for ActivityPods' Solid-OIDC flow. A single mount point handles every stage —
- * there's no need for a separate `/auth-callback` route (unlike react-admin, Refine has no
- * automatic one) as long as it's mounted at whatever route `authProvider()`'s `redirectUri` is
- * configured to (defaults to `/login`, i.e. this component's usual route already matches). It
- * tells which stage it's in from the URL's search params:
+ * A login page for ActivityPods' Solid-OIDC flow, modeled on `@activitypods/react`'s `LoginPage`.
  *
- * 1. No relevant params: shows a list of public Pod providers (or `defaultPodProvider`, if set)
- *    plus a manual URL field, and calls `login({ issuer, redirect })` on selection.
+ * Shows the public Pod providers that match the app's current locale (via Refine's
+ * `useGetLocale`), or the `customPodProviders` / `defaultPodProvider` given as props, and starts
+ * the login on selection. Like the react-admin original, it also reacts to a few search params:
+ *
+ * - `?signup`: send the user through the provider's signup flow rather than login.
+ * - `?iss=<url>`: the Pod provider is already known, log in there straight away.
+ * - `?logout`: log out immediately (then land on `?redirect`, or stay on this page).
+ * - `?redirect=<path>`: where to go once done (in-app paths only).
+ *
+ * A single mount point handles every stage — there's no need for a separate `/auth-callback`
+ * route (unlike react-admin, Refine has no automatic one) as long as it's mounted at whatever
+ * route `authProvider()`'s `redirectUri` is configured to (defaults to `/login`, i.e. this
+ * component's usual route already matches). It tells which stage it's in from the URL:
+ *
+ * 1. None of the params below: shows the providers list described above.
  * 2. `?code=...` (the Pod redirected back after login): completes the OAuth exchange via
  *    `authProvider.handleCallback()`, then moves to the next stage.
  * 3. `?register_app=1`: makes sure this app is registered with the user's authorization agent
  *    (redirecting to the consent screen if not), then navigates to `redirect`.
  */
-export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defaultRedirect = "/" }: AntdAuthPageProps) => {
+export const AntdAuthPage = ({
+  authProvider,
+  customPodProviders,
+  defaultPodProvider,
+  text,
+  redirect: defaultRedirect = "/",
+}: AntdAuthPageProps) => {
   const { token } = theme.useToken();
   const translate = useTranslate();
+  const getLocale = useGetLocale();
+  const { open: notify } = useNotification();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { mutate: login, isPending } = useLogin();
+  const { mutate: login } = useLogin();
+  const { mutate: logout } = useLogout();
   const { data: identity, isLoading: isIdentityLoading, refetch: refetchIdentity } = useGetIdentity();
 
-  const [podProviders, setPodProviders] = useState<PublicPodProvider[]>(
-    defaultPodProvider ? [{ "apods:baseUrl": defaultPodProvider }] : [],
-  );
-  const [customUrl, setCustomUrl] = useState("");
+  const initialPodProviders =
+    customPodProviders || (defaultPodProvider ? [{ "apods:baseUrl": defaultPodProvider }] : []);
+  const [podProviders, setPodProviders] = useState<PodProvider[]>(initialPodProviders);
   const [error, setError] = useState<string | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
 
+  // `getLocale()` may return a region-qualified tag (e.g. "fr-FR" from i18next) while the
+  // providers list uses bare language codes.
+  const locale = getLocale()?.split(/[-_]/)[0];
+  const isSignup = searchParams.has("signup");
   const hasCode = searchParams.has("code");
   const hasRegisterApp = searchParams.has("register_app");
   const isProcessing = hasCode || hasRegisterApp;
   // Only consulted while a flow is in progress: on a fresh visit the stash may hold a
   // leftover from an abandoned attempt, which must not be passed to `login()`.
-  const redirect = searchParams.get("redirect") || (isProcessing ? readStashedRedirect() : undefined) || defaultRedirect;
+  const requestedRedirect = searchParams.get("redirect");
+  const redirect =
+    (isPath(requestedRedirect) ? requestedRedirect : undefined) ||
+    (isProcessing ? readStashedRedirect() : undefined) ||
+    defaultRedirect;
 
-  // Fetch the public provider list, unless a default was configured or we're mid-flow
+  // Fetch the public providers list (filtered by locale), unless a custom one was given or we're mid-flow
   useEffect(() => {
-    if (defaultPodProvider || isProcessing) return;
-    fetch(POD_PROVIDERS_URL, { headers: { Accept: "application/ld+json" } })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (json?.["ldp:contains"]) setPodProviders(json["ldp:contains"]);
-      })
-      .catch(() => {
-        // Ignore: the manual URL field below still works
-      });
-  }, [defaultPodProvider, isProcessing]);
+    if (initialPodProviders.length > 0 || isProcessing) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(POD_PROVIDERS_URL, { headers: { Accept: "application/ld+json" } });
+        if (!response.ok) throw new Error(response.statusText);
+        const json = await response.json();
+        const providers: PodProvider[] = json["ldp:contains"] || [];
+        if (!cancelled) {
+          setPodProviders(
+            locale
+              ? providers.filter((provider) => {
+                  const locales = provider["apods:locales"];
+                  return Array.isArray(locales) ? locales.includes(locale) : locales === locale;
+                })
+              : providers,
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          notify?.({
+            type: "error",
+            message: translate("pages.login.podProvidersNotLoaded", "Unable to load the list of Pod providers"),
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPodProviders.length, isProcessing, locale]);
+
+  // Shortcuts driven by search params, mirroring `@activitypods/react`'s LoginPage
+  const handledShortcutRef = useRef(false);
+  useEffect(() => {
+    if (isProcessing || handledShortcutRef.current) return;
+    const issuer = searchParams.get("iss");
+    if (issuer) {
+      // The Pod provider is already known: no need to pick one
+      handledShortcutRef.current = true;
+      login({ issuer, redirect, isSignup });
+    } else if (searchParams.has("logout")) {
+      // Immediately log out if required
+      handledShortcutRef.current = true;
+      logout({ redirectPath: redirect });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProcessing, searchParams]);
 
   // Step 1: complete the OAuth code exchange, then move to the app-registration step
   const handledCodeRef = useRef(false);
@@ -177,89 +251,65 @@ export const AntdAuthPage = ({ authProvider, defaultPodProvider, redirect: defau
 
   if (isProcessing) {
     return (
-      <Layout style={{ minHeight: "100dvh" }}>
-        <Row justify="center" align="middle" style={{ minHeight: "100dvh" }}>
-          <Col style={{ textAlign: "center" }}>
-            {error ? (
-              <Space direction="vertical" align="center">
-                <Typography.Text type="danger">{error}</Typography.Text>
-                <Button onClick={() => navigate("/login", { replace: true })}>
-                  {translate("pages.login.backToLogin", "Back to login")}
-                </Button>
-              </Space>
-            ) : (
-              <Spin size="large" />
-            )}
-          </Col>
-        </Row>
+      <Layout style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {error ? (
+          <Space direction="vertical" align="center">
+            <Typography.Text type="danger">{error}</Typography.Text>
+            <Button onClick={() => navigate("/login", { replace: true })}>
+              {translate("pages.login.backToLogin", "Back to login")}
+            </Button>
+          </Space>
+        ) : (
+          <Spin size="large" />
+        )}
       </Layout>
     );
   }
 
   return (
-    <Layout style={{ minHeight: "100dvh" }}>
-      <Row justify="center" align="middle" style={{ padding: "16px 0", minHeight: "100dvh" }}>
-        <Col xs={22}>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: "32px", fontSize: "20px" }}>
-            {translate("pages.login.title", "Sign in")}
-          </div>
-          <Card
-            style={{ ...containerStyle, backgroundColor: token.colorBgElevated }}
-            styles={{ body: { padding: 0 } }}
+    <Layout style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <Card
+        style={{ minWidth: 300, maxWidth: 350, marginTop: "6em", backgroundColor: token.colorBgElevated }}
+        styles={{ body: { padding: 0 } }}
+      >
+        <div style={{ margin: "1em", display: "flex", justifyContent: "center" }}>
+          <Avatar size={40} icon={<LockOutlined />} />
+        </div>
+        <div style={{ paddingLeft: 16, paddingRight: 16 }}>
+          <Typography.Paragraph
+            type="secondary"
+            style={{ textAlign: "center", padding: "4px 8px 8px", marginBottom: 0, fontSize: token.fontSizeSM }}
           >
-            <div style={{ padding: 24, paddingBottom: 8, textAlign: "center" }}>
-              <LockOutlined style={{ fontSize: 24 }} />
-              <Typography.Paragraph style={{ marginTop: 12 }}>
-                {translate(
-                  "pages.login.choosePodProvider",
-                  "Choose the Pod provider that hosts your ActivityPods account",
-                )}
-              </Typography.Paragraph>
-            </div>
-
-            {podProviders.length > 0 && (
-              <List
-                dataSource={podProviders}
-                renderItem={(provider) => (
-                  <List.Item
-                    style={{ cursor: "pointer", padding: "12px 24px" }}
-                    onClick={() => login({ issuer: provider["apods:baseUrl"], redirect })}
-                  >
-                    <Space>
-                      <CloudServerOutlined />
-                      <div>
-                        <div>{new URL(provider["apods:baseUrl"]).host}</div>
-                        {provider["apods:area"] && (
-                          <Typography.Text type="secondary">{provider["apods:area"]}</Typography.Text>
-                        )}
-                      </div>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            )}
-
-            <Form layout="vertical" style={{ padding: 24 }} onFinish={() => login({ issuer: customUrl, redirect })}>
-              <Form.Item
-                label={translate("pages.login.fields.issuer", "Pod provider URL")}
-                rules={[{ required: true, type: "url" }]}
+            {text ||
+              translate("pages.login.choosePodProvider", "Choose the Pod provider that hosts your ActivityPods account")}
+          </Typography.Paragraph>
+        </div>
+        <div style={{ margin: 16 }}>
+          {podProviders.map((podProvider, i) => (
+            <Fragment key={i}>
+              <Divider style={{ margin: 0 }} />
+              <Button
+                type="text"
+                block
+                onClick={() => login({ issuer: podProvider["apods:baseUrl"], redirect, isSignup })}
+                style={{ height: "auto", padding: "8px 16px", justifyContent: "flex-start", textAlign: "left" }}
               >
-                <Input
-                  size="large"
-                  placeholder="https://mypod.provider.org"
-                  value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
-                />
-              </Form.Item>
-              <Form.Item style={{ marginBottom: 0 }}>
-                <Button type="primary" size="large" htmlType="submit" loading={isPending} block>
-                  {translate("pages.login.signin", "Sign in")}
-                </Button>
-              </Form.Item>
-            </Form>
-          </Card>
-        </Col>
-      </Row>
+                <Space size="middle" align="center">
+                  <Avatar size={40} icon={<DatabaseOutlined />} />
+                  <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.5 }}>
+                    <Typography.Text>{new URL(podProvider["apods:baseUrl"]).host}</Typography.Text>
+                    {podProvider["apods:area"] && (
+                      <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+                        {podProvider["apods:area"]}
+                      </Typography.Text>
+                    )}
+                  </div>
+                </Space>
+              </Button>
+            </Fragment>
+          ))}
+        </div>
+      </Card>
     </Layout>
   );
 };
