@@ -31,6 +31,10 @@
       "types": "./dist/antd-auth-page.d.ts",
       "default": "./dist/antd-auth-page.js"
     },
+    "./antd-background-checks": {
+      "types": "./dist/antd-background-checks.d.ts",
+      "default": "./dist/antd-background-checks.js"
+    },
     "./data-provider": {
       "types": "./dist/data-provider.d.ts",
       "default": "./dist/data-provider.js"
@@ -68,6 +72,15 @@
     },
     "antd-auth-page": {
       "source": "src/antd-auth-page.tsx",
+      "distDir": "dist",
+      "context": "browser",
+      "outputFormat": "esmodule",
+      "isLibrary": true,
+      "includeNodeModules": false,
+      "sourceMap": true
+    },
+    "antd-background-checks": {
+      "source": "src/antd-background-checks.tsx",
       "distDir": "dist",
       "context": "browser",
       "outputFormat": "esmodule",

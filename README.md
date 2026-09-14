@@ -82,7 +82,7 @@ Prefer a different UI kit, or want to build your own? `AntdAuthPage`'s source (`
 
 If the app is later changed to request a *new* access need (e.g. a resource added to `resources` in [§2](#2-configure-the-providers), with a matching entry added to the app's access-need group), existing users who already granted access before that change need to go through the consent screen again — the Pod provider grants exactly what was consented to, nothing more, so requests for the new resource will just 403 until then.
 
-`authProvider()` handles this on its own, no extra wiring needed: on top of the check `registerApp()` already does at login, it also polls `getAppStatus()` in the background (every 2 minutes by default, and on every tab-focus change — configurable via `appStatusCheckInterval`, or set to `false` to disable) and silently redirects to the consent screen the moment it reports `upgradeNeeded: true`. This mirrors [`@activitypods/react`'s `BackgroundChecks`](https://github.com/activitypods/activitypods) component.
+`authProvider()` handles this on its own, no extra wiring needed: on top of the check `registerApp()` already does at login, it also polls `getAppStatus()` in the background (every 2 minutes by default, and on every tab-focus change — configurable via `appStatusCheckInterval`, or set to `false` to disable) and silently redirects to the consent screen the moment it reports `upgradeNeeded: true`. This is the minimal counterpart of [`@activitypods/react`'s `BackgroundChecks`](https://github.com/activitypods/activitypods) component; see [§3.2](#32-gate-the-app-behind-a-full-status-check) for the full one.
 
 **`upgradeNeeded` is computed by the Pod comparing your app description's `dc:modified` value** — a cached copy (from when the user last consented) against a fresh fetch of your `app.json`. This means:
 
@@ -90,6 +90,30 @@ If the app is later changed to request a *new* access need (e.g. a resource adde
 - Treat it as a hand-maintained version stamp, not a live timestamp: only bump it when you actually change something the Pod should reconcile (an access need, or `app.json`'s other declared properties) — regenerating it on every deploy would force *every* user through re-consent on *every* release, defeating the point.
 - Your context needs to type it explicitly — `"dc:modified": { "@type": "xsd:dateTime" }` — otherwise it's stored untyped, the Pod's comparison always sees mismatched types, and `upgradeNeeded` is permanently (not just occasionally) stuck `true`.
 - **Write the value in canonical XSD `dateTime` form: no fractional seconds if they'd be zero** (`2026-08-05T00:00:00Z`, not `2026-08-05T00:00:00.000Z`). The comparison is a plain string `!=`, not a datetime-aware one, and the triplestore canonicalizes `dateTime` literals on the way in/out — a `.000Z` you wrote will come back as `Z` after the round-trip, permanently mismatching the raw value in your file even though both represent the same instant.
+
+#### 3.2. Gate the app behind a full status check
+
+Apps with their own backend usually want more than the silent re-consent above: to refuse to render while the backend is offline, and to make sure it has webhook channels on the URIs it needs to react to (typically the user's inbox and outbox). That's what `AntdBackgroundChecks` does, mirroring `@activitypods/react`'s `BackgroundChecks` — wrap the authenticated part of your app in it:
+
+```tsx
+import { AntdBackgroundChecks } from "@activitypods/refine-providers/antd-background-checks";
+
+<Authenticated key="authenticated-routes" fallback={<CatchAllNavigate to="/login" />}>
+  <AntdBackgroundChecks authProvider={apAuthProvider} listeningTo={[inboxUri, outboxUri]}>
+    <ThemedLayout>
+      <Outlet />
+    </ThemedLayout>
+  </AntdBackgroundChecks>
+</Authenticated>
+```
+
+While logged in, it calls `getAppStatus()` right away, then every 2 minutes and on every tab-focus change (`checkInterval`, or `false` to check once), and shows a loader until the first check passes:
+
+- `onlineBackend: false` → an error block with **Refresh** / **Logout** buttons, instead of the app.
+- `installed: false` or `upgradeNeeded: true` → `registerApp()`, i.e. off to the consent screen. Before leaving it saves the current page, and brings the user back to it once the consent screen returns to the app.
+- One of the `listeningTo` URIs has no webhook channel yet → retried every second for 10s (channels are created right after registration), then the same error block.
+
+While logged out it renders `children` untouched. Since it covers everything the auth provider's own poll does, pass `appStatusCheckInterval: false` to `authProvider()` when using it. Its strings go through `useTranslate` with English defaults: `apods.error.app_offline`, `apods.error.app_not_listening` (with a `{{uri}}` placeholder), `apods.error.app_status_unavailable`, plus Refine's built-in `buttons.refresh` and `buttons.logout`.
 
 ### 4. Use Refine's hooks as usual
 

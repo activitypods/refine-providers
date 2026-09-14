@@ -61,7 +61,7 @@ export type AuthProvider = CoreAuthProvider & {
   /**
    * Checks this app's status with the Pod: whether it's registered, and whether its granted
    * access needs are stale (`upgradeNeeded`) — e.g. because the app now requests a resource it
-   * didn't before. Used internally by `registerApp` and `useAppStatusCheck`; exposed directly
+   * didn't before. Used internally by `registerApp` and `AntdBackgroundChecks`; exposed directly
    * for building custom status UI (see ActivityPods' own `BackgroundChecks` component).
    */
   getAppStatus: () => Promise<AppStatus>;
@@ -79,6 +79,16 @@ export type AppStatus = {
    * whether the user needs to go through the consent screen again to grant the difference.
    */
   upgradeNeeded?: boolean;
+  /** The webhook channels the app's backend has on the Pod (only present once `installed`). */
+  webhookChannels?: WebhookChannel | WebhookChannel[];
+};
+
+export type WebhookChannel = {
+  id: string;
+  type: string;
+  /** URI of the resource whose changes are pushed to the app's backend */
+  topic: string;
+  sendTo?: string;
 };
 
 export type AuthProviderConfig = {

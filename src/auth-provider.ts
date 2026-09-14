@@ -5,7 +5,12 @@ import { AuthProvider, AuthProviderConfig, AuthSession, LoginParams } from "./ty
 
 const STORAGE_KEY_TOKEN = "activitypods.token";
 const STORAGE_KEY_CODE_VERIFIER = "activitypods.codeVerifier";
-const STORAGE_KEY_REDIRECT = "activitypods.redirect";
+/**
+ * Where to return to once a flow completes. Set by `login()` (read back by `handleCallback()`)
+ * and by `registerApp()` before leaving for the consent screen (read back by
+ * `AntdBackgroundChecks` when the user comes back).
+ */
+export const STORAGE_KEY_REDIRECT = "activitypods.redirect";
 
 type SolidOidcIdTokenPayload = {
   webid: string;
