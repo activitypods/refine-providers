@@ -110,13 +110,20 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
 
       // Get the current version of the resource to reduce the risk of overwriting 
       // predicates that have been added by the backend
-      const { id: _id, "@context": _context, ...current } = await fetchOne(`${id}`);
+      const { id: _id, "@context": currentContext, ...current } = await fetchOne(`${id}`);
 
+      // `current`'s keys were compacted with the resource's own context (e.g. the Pod's
+      // `dc:created`), which jsonContext doesn't necessarily define: sending it alone stored them
+      // as bogus absolute IRIs like <dc:created>. Listed last, so it wins for `current`'s keys.
       await fetchJson(
         `${id}`,
         {
           method: "PUT",
-          body: JSON.stringify({ "@context": jsonContext, ...current, ...variables })
+          body: JSON.stringify({
+            "@context": [...arrayOf(jsonContext), ...arrayOf(currentContext)],
+            ...current,
+            ...variables
+          })
         },
         token
       );
