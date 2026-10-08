@@ -1,8 +1,10 @@
 import type { DataProvider } from "@refinedev/core";
+import LinkHeader from "http-link-header";
 import {
   applyFilters,
   applySorters,
   arrayOf,
+  buildServerListQuery,
   DEFAULT_CONTEXT,
   fetchJson,
   normalizeRecord,
@@ -17,9 +19,10 @@ import { DataProviderConfig, ResourceConfig } from "./types";
  * `solid:publicTypeIndex`) — the same mechanism the Pod uses to register a container the
  * first time a shape tree's access is granted.
  *
- * Since ActivityPods containers don't support server-side filtering, sorting or pagination,
- * `getList`/`getManyReference` fetch the full container and apply Refine's filters, sorters
- * and pagination in memory.
+ * With `pagination: { mode: "server" }`, `getList` asks the Pod for a single page of the container,
+ * filtered and sorted by the Pod (see `buildServerListQuery` for the supported filters). If some
+ * filters or sorters can't be applied by the Pod, or if the Pod doesn't support paging, the full
+ * container is fetched and Refine's filters, sorters and pagination are applied in memory.
  */
 const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }: DataProviderConfig): DataProvider => {
   const requireSession = () => {
@@ -49,8 +52,52 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
     const { token } = requireSession();
     const containerUri = await resolveContainer(resource);
 
-    const { json: container } = await fetchJson(containerUri, {}, token);
+    const serverQuery = await buildServerListQuery(filters, sorters, jsonContext);
+    const serverPaging = pagination?.mode === "server" && !!serverQuery;
+    const currentPage = pagination?.currentPage ?? 1;
+    const pageSize = pagination?.pageSize ?? 10;
+
+    let url = containerUri;
+    const headers = new Headers();
+    if (serverQuery) {
+      // Filters are always sent: they are applied again in memory below, unless the Pod paged the results
+      const params = new URLSearchParams(serverQuery.params);
+      if (serverPaging) {
+        params.set("page", `${currentPage}`);
+        // Sorting is only delegated to the Pod with paging, as it may differ from the in-memory sorting
+        // (SPARQL compares strings by code points, so it is case and accent sensitive)
+        headers.set(
+          "Prefer",
+          [
+            "return=representation",
+            `max-member-count="${pageSize}"`,
+            ...(serverQuery.sortPredicate
+              ? [`sort-predicate="${serverQuery.sortPredicate}"`, `sort-order="${serverQuery.sortOrder}"`]
+              : [])
+          ].join("; ")
+        );
+      }
+      if (params.size > 0) url = `${containerUri}?${params.toString()}`;
+    }
+
+    const { json: container, headers: responseHeaders } = await fetchJson(url, { headers }, token);
     let records = arrayOf(container["ldp:contains"]).map(item => normalizeRecord(item, container["@context"]));
+
+    if (serverPaging && responseHeaders.get("Preference-Applied")?.includes("max-member-count")) {
+      const links = LinkHeader.parse(responseHeaders.get("Link") || "");
+      const hasNextPage = links.has("rel", "next");
+      const lastPageUri = links.get("rel", "last")[0]?.uri;
+      const lastPage = lastPageUri ? Number(new URL(lastPageUri).searchParams.get("page")) || currentPage : currentPage;
+      return {
+        data: records as any,
+        // The Pod doesn't return the number of resources, so it is exact only on the last page
+        total: hasNextPage ? Math.max(lastPage, currentPage + 1) * pageSize : (currentPage - 1) * pageSize + records.length,
+        cursor: {
+          next: hasNextPage ? currentPage + 1 : undefined,
+          prev: currentPage > 1 ? currentPage - 1 : undefined
+        }
+      };
+    }
 
     records = applyFilters(records, filters);
     records = applySorters(records, sorters);
@@ -58,8 +105,6 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
     const total = records.length;
 
     if (pagination && pagination.mode !== "off") {
-      const currentPage = pagination.currentPage ?? 1;
-      const pageSize = pagination.pageSize ?? 10;
       records = records.slice((currentPage - 1) * pageSize, currentPage * pageSize);
     }
 

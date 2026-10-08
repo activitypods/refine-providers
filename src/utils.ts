@@ -259,10 +259,57 @@ const getFieldValue = (record: any, field: string) =>
 const compareStrings = (a: string, b: string, caseSensitive: boolean) =>
   caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase();
 
+/** Lowercase a string and remove its diacritics, like the Pod does when searching (`?q=`). */
+const simplifyString = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
 const includesString = (haystack: string, needle: string, caseSensitive: boolean) =>
-  caseSensitive ? haystack.includes(needle) : haystack.toLowerCase().includes(needle.toLowerCase());
+  caseSensitive ? haystack.includes(needle) : simplifyString(haystack).includes(simplifyString(needle));
+
+/** Field of the special filter searching keywords in all the literals of a resource: `{ field: "q", operator: "contains", value }`. */
+export const SEARCH_FIELD = "q";
+
+/**
+ * Field of the special filter keeping resources near a point (or without location):
+ * `{ field: "near", operator: "eq", value: { latitude, longitude, radius } }`, with the radius in km.
+ * The location is read from `vcard:hasGeo` (`vcard:latitude` / `vcard:longitude`).
+ */
+export const NEAR_FIELD = "near";
+
+export type NearFilterValue = { latitude: number; longitude: number; radius: number };
+
+const distanceKm = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) => {
+  const rad = Math.PI / 180;
+  const sinLat = Math.sin(((b.latitude - a.latitude) * rad) / 2);
+  const sinLon = Math.sin(((b.longitude - a.longitude) * rad) / 2);
+  return 12742 * Math.asin(Math.sqrt(sinLat * sinLat + Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * sinLon * sinLon));
+};
+
+const isNear = (record: any, near: NearFilterValue) => {
+  const positions = arrayOf<any>(record["vcard:hasGeo"])
+    .map(geo => ({ latitude: Number(geo?.["vcard:latitude"]), longitude: Number(geo?.["vcard:longitude"]) }))
+    .filter(position => Number.isFinite(position.latitude) && Number.isFinite(position.longitude));
+  return positions.length === 0 || positions.some(position => distanceKm(near, position) <= near.radius);
+};
+
+const matchesSearch = (record: any, keywords: string) =>
+  Object.entries(record).some(
+    ([key, value]) =>
+      key !== "@context" &&
+      arrayOf<any>(value).some(v => typeof v === "string" && includesString(v, keywords, false))
+  );
 
 const matchesLogicalFilter = (record: any, filter: LogicalFilter): boolean => {
+  if (filter.field === SEARCH_FIELD && filter.operator === "contains") {
+    return !filter.value || matchesSearch(record, String(filter.value));
+  }
+  if (filter.field === NEAR_FIELD && filter.operator === "eq") {
+    return !filter.value || isNear(record, filter.value);
+  }
+
   const fieldValue = getFieldValue(record, filter.field);
   const values = arrayOf(fieldValue);
   const { operator, value } = filter;
@@ -362,4 +409,99 @@ export const applySorters = <T,>(records: T[], sorters?: CrudSorting): T[] => {
     }
     return 0;
   });
+};
+
+/** Expand a field (e.g. `vcard:given-name`) into a full predicate URI, using a JSON-LD context. */
+const expandPredicate = async (field: string, context: JsonContext): Promise<string | undefined> => {
+  if (isURI(field)) return field;
+  try {
+    const result = await jsonld.expand({ "@context": context, [field]: "x" } as any);
+    return Object.keys(result[0] || {}).find(isURI);
+  } catch {
+    return undefined;
+  }
+};
+
+export type ServerListQuery = {
+  /** Query string params filtering the container (`q`, `q-predicate`, `near`, `radius`) */
+  params: URLSearchParams;
+  sortPredicate?: string;
+  sortOrder?: "ASC" | "DESC";
+};
+
+/**
+ * Translate Refine's filters and sorters into the params supported by the Pod when fetching a container.
+ * Returns `undefined` if some of them cannot be applied by the Pod, in which case everything is done in memory.
+ *
+ * Supported filters:
+ * - `{ field: "q", operator: "contains", value }`: search in all the literals of the resources
+ * - `{ field, operator: "contains", value }`: search in this field
+ * - `{ operator: "or", value: [{ field, operator: "contains", value }, ...] }` with the same value: search in these fields
+ * - `{ field: "near", operator: "eq", value: { latitude, longitude, radius } }`
+ *
+ * Only one search, and one sorter, can be applied by the Pod.
+ */
+export const buildServerListQuery = async (
+  filters: CrudFilters | undefined,
+  sorters: CrudSorting | undefined,
+  context: JsonContext
+): Promise<ServerListQuery | undefined> => {
+  const params = new URLSearchParams();
+  let search: { keywords: string; fields: string[] } | undefined;
+
+  const addSearch = (keywords: string, fields: string[]) => {
+    if (search) return false; // The Pod can only apply one search
+    search = { keywords, fields };
+    return true;
+  };
+
+  for (const filter of filters || []) {
+    if (isConditionalFilter(filter)) {
+      const children = filter.value;
+      const keywords = (children[0] as LogicalFilter | undefined)?.value;
+      const isSearch =
+        filter.operator === "or" &&
+        children.length > 0 &&
+        children.every(
+          child =>
+            !isConditionalFilter(child) &&
+            child.operator === "contains" &&
+            child.field !== SEARCH_FIELD &&
+            child.value === keywords
+        );
+      if (!isSearch) return undefined;
+      if (keywords && !addSearch(String(keywords), children.map(child => (child as LogicalFilter).field))) return undefined;
+    } else if (filter.operator === "contains") {
+      if (filter.value && !addSearch(String(filter.value), filter.field === SEARCH_FIELD ? [] : [filter.field])) {
+        return undefined;
+      }
+    } else if (filter.field === NEAR_FIELD && filter.operator === "eq") {
+      if (filter.value) {
+        const { latitude, longitude, radius } = filter.value as NearFilterValue;
+        params.set("near", `${latitude},${longitude}`);
+        params.set("radius", `${radius}`);
+      }
+    } else {
+      return undefined;
+    }
+  }
+
+  if (search) {
+    params.set("q", search.keywords);
+    for (const field of search.fields) {
+      const predicate = await expandPredicate(field, context);
+      if (!predicate) return undefined;
+      params.append("q-predicate", predicate);
+    }
+  }
+
+  if (sorters && sorters.length > 1) return undefined;
+  const sorter = sorters?.[0] as CrudSort | undefined;
+  let sortPredicate: string | undefined;
+  if (sorter) {
+    sortPredicate = await expandPredicate(sorter.field, context);
+    if (!sortPredicate) return undefined;
+  }
+
+  return { params, sortPredicate, sortOrder: sorter ? (sorter.order === "desc" ? "DESC" : "ASC") : undefined };
 };

@@ -134,6 +134,23 @@ export const EventList = () => {
 
 `getList` supports Refine's `filters` (`eq`, `contains`, `in`, `gte`/`lte`, `and`/`or`, ...), `sorters` and `pagination` out of the box.
 
+With `pagination: { mode: "server" }` (the default of `useTable` and `useInfiniteList`), only one page is fetched: the Pod pages, sorts and filters the container (SemApps 1.3.0 or later). This is possible with these filters, and one sorter:
+
+- `{ field: "q", operator: "contains", value }`: search in all the fields of the resources
+- `{ field, operator: "contains", value }`: search in this field (or several fields, with an `or` filter whose children have the same value)
+- `{ field: "near", operator: "eq", value: { latitude, longitude, radius } }`: keep resources whose `vcard:hasGeo` is within `radius` km, or without location
+
+Searches are case and accent insensitive. Note that the Pod sorts strings by code points, so case and accents matter. Other filters and sorters, or a Pod which doesn't support paging, are handled in memory after fetching the whole container.
+
+```tsx
+const { result, query } = useInfiniteList({
+  resource: "profile",
+  pagination: { pageSize: 20, mode: "server" },
+  sorters: [{ field: "vcard:given-name", order: "asc" }],
+  filters: [{ field: "vcard:given-name", operator: "contains", value: search }]
+});
+```
+
 ### 5. (Optional) Enable live updates
 
 > **⚠️ Currently blocked by an upstream bug in ActivityPods/SemApps.** The code below is
