@@ -126,7 +126,7 @@
     "build": "rm -rf dist .parcel-cache && parcel build && tsc -p tsconfig.build.json",
     "watch": "concurrently -n parcel,tsc -c blue,yellow \"parcel watch --no-cache\" \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\"",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build",
+    "prepare": "pnpm build",
     "release:patch": "npm version patch",
     "release:minor": "npm version minor",
     "release:major": "npm version major"
