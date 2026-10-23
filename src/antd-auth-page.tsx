@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import { useGetIdentity, useGetLocale, useLogin, useLogout, useNotification, useTranslate } from "@refinedev/core";
+import { Fragment, useContext, useEffect, useRef, useState } from "react";
+import { I18nContext, useGetIdentity, useLogin, useLogout, useNotification, useTranslate } from "@refinedev/core";
 import { useNavigate, useSearchParams } from "react-router";
 import { Avatar, Button, Card, Divider, Layout, Space, Spin, Typography, theme } from "antd";
 import { DatabaseOutlined, LockOutlined } from "@ant-design/icons";
@@ -82,7 +82,7 @@ export type AntdAuthPageProps = {
  * A login page for ActivityPods' Solid-OIDC flow, modeled on `@activitypods/react`'s `LoginPage`.
  *
  * Shows the public Pod providers that match the app's current locale (via Refine's
- * `useGetLocale`), or the `customPodProviders` / `defaultPodProvider` given as props, and starts
+ * i18nProvider, if any), or the `customPodProviders` / `defaultPodProvider` given as props, and starts
  * the login on selection. Like the react-admin original, it also reacts to a few search params:
  *
  * - `?signup`: send the user through the provider's signup flow rather than login.
@@ -110,7 +110,8 @@ export const AntdAuthPage = ({
 }: AntdAuthPageProps) => {
   const { token } = theme.useToken();
   const translate = useTranslate();
-  const getLocale = useGetLocale();
+  // Not `useGetLocale`, which throws when the app has no i18nProvider
+  const { i18nProvider } = useContext(I18nContext);
   const { open: notify } = useNotification();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -126,7 +127,7 @@ export const AntdAuthPage = ({
 
   // `getLocale()` may return a region-qualified tag (e.g. "fr-FR" from i18next) while the
   // providers list uses bare language codes.
-  const locale = getLocale()?.split(/[-_]/)[0];
+  const locale = i18nProvider?.getLocale()?.split(/[-_]/)[0];
   const isSignup = searchParams.has("signup");
   const hasCode = searchParams.has("code");
   const hasRegisterApp = searchParams.has("register_app");
