@@ -1,6 +1,6 @@
 {
   "name": "@activitypods/refine-providers",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "type": "module",
   "description": "Refine data and auth providers for ActivityPods",
