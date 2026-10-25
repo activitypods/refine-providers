@@ -1,7 +1,7 @@
 import jsonld from "jsonld";
 import LinkHeader from "http-link-header";
 import type { ConditionalFilter, CrudFilter, CrudFilters, CrudSort, CrudSorting, LogicalFilter } from "@refinedev/core";
-import type { AppStatus, JsonContext, ResourceConfig } from "./types";
+import type { AppStatus, AuthSession, JsonContext, ResourceConfig } from "./types";
 
 /** Default JSON-LD context used when none is configured: the ActivityStreams 2 vocabulary. */
 export const DEFAULT_CONTEXT: JsonContext = ["https://www.w3.org/ns/activitystreams"];
@@ -27,7 +27,8 @@ export const fetchJson = async (url: string, options: RequestInit = {}, token?: 
 
   const headers = new Headers(options.headers);
   if (!headers.has("Accept")) headers.set("Accept", "application/ld+json");
-  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/ld+json");
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type"))
+    headers.set("Content-Type", "application/ld+json");
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(url, { ...options, headers });
@@ -54,6 +55,53 @@ export const fetchJson = async (url: string, options: RequestInit = {}, token?: 
   }
 
   return { status: response.status, headers: response.headers, json };
+};
+
+const proxyUrls = new Map<string, Promise<string | undefined>>();
+
+const getProxyUrl = (session: AuthSession) => {
+  if (!proxyUrls.has(session.webId)) {
+    proxyUrls.set(
+      session.webId,
+      fetchJson(session.webId, {}, session.token).then(
+        ({ json }) => json?.endpoints?.proxyUrl,
+        () => undefined
+      )
+    );
+  }
+  return proxyUrls.get(session.webId)!;
+};
+
+/**
+ * Like `fetchJson`, as the logged-in user. A Pod only accepts the tokens it issued itself, so
+ * resources on other servers are fetched through the proxy endpoint of the user's Pod, which
+ * signs the request on their behalf.
+ */
+export const fetchWithSession = async (
+  url: string,
+  options: RequestInit = {},
+  session?: AuthSession
+): Promise<FetchJsonResult> => {
+  if (!session?.webId || new URL(url).origin === new URL(session.webId).origin) {
+    return fetchJson(url, options, session?.token);
+  }
+
+  const proxyUrl = await getProxyUrl(session);
+  if (!proxyUrl) return fetchJson(url, options);
+
+  const headers = new Headers(options.headers);
+  if (!headers.has("Accept")) headers.set("Accept", "application/ld+json");
+  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/ld+json");
+
+  const formData = new FormData();
+  formData.append("id", url);
+  formData.append("method", options.method || "GET");
+  const headersObject: Record<string, string> = {};
+  headers.forEach((value, key) => (headersObject[key] = value));
+  formData.append("headers", JSON.stringify(headersObject));
+  if (options.body) formData.append("body", options.body as string | Blob);
+
+  return fetchJson(proxyUrl, { method: "POST", body: formData }, session.token);
 };
 
 /** Expand CURIEs (e.g. `as:Event`) into full URIs, using a JSON-LD context. Full URIs are returned as-is. */

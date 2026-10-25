@@ -7,6 +7,7 @@ import {
   buildServerListQuery,
   DEFAULT_CONTEXT,
   fetchJson,
+  fetchWithSession,
   normalizeRecord,
   resolveContainerUri,
   resolveResourceTypes
@@ -43,8 +44,7 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
   };
 
   const fetchOne = async (id: string) => {
-    const { token } = requireSession();
-    const { json } = await fetchJson(id, {}, token);
+    const { json } = await fetchWithSession(id, {}, requireSession());
     return normalizeRecord(json, json["@context"]);
   };
 
@@ -150,7 +150,7 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
     },
 
     update: async ({ resource, id, variables }) => {
-      const { token } = requireSession();
+      const session = requireSession();
       requireResourceConfig(resource);
 
       // Get the current version of the resource to reduce the risk of overwriting 
@@ -160,7 +160,7 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
       // `current`'s keys were compacted with the resource's own context (e.g. the Pod's
       // `dc:created`), which jsonContext doesn't necessarily define: sending it alone stored them
       // as bogus absolute IRIs like <dc:created>. Listed last, so it wins for `current`'s keys.
-      await fetchJson(
+      await fetchWithSession(
         `${id}`,
         {
           method: "PUT",
@@ -170,16 +170,16 @@ const dataProvider = ({ resources, authProvider, jsonContext = DEFAULT_CONTEXT }
             ...variables
           })
         },
-        token
+        session
       );
 
       return { data: (await fetchOne(`${id}`)) as any };
     },
 
     deleteOne: async ({ resource, id }) => {
-      const { token } = requireSession();
+      const session = requireSession();
       requireResourceConfig(resource);
-      await fetchJson(`${id}`, { method: "DELETE" }, token);
+      await fetchWithSession(`${id}`, { method: "DELETE" }, session);
       return { data: { id } as any };
     }
   };
